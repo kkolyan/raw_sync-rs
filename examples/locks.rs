@@ -10,7 +10,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 fn test_timeout(id: u8, lock: &dyn LockImpl) {
     info!("[{}] Waiting for lock for 1 second", id);
     let guard = lock.try_lock(Timeout::Val(time::Duration::from_secs(1)));
-    if guard.is_err() {
+    if guard.deny_abandoned().is_err() {
         info!("[{}] Timed out !", id);
     } else {
         info!("[{}] Holding lock for 2s", id);
@@ -23,7 +23,7 @@ fn increment_val(id: u8, lock: Box<dyn LockImpl>) {
         info!("[{}] Waiting for lock...", id);
         //Read value
         {
-            let data_ptr = lock.rlock().unwrap();
+            let data_ptr = lock.rlock().deny_abandoned().unwrap();
             info!("[{}]\t READ LOCKED", id);
             let data = unsafe { &*(*data_ptr as *const usize) };
             if *data >= 5 {
@@ -36,7 +36,7 @@ fn increment_val(id: u8, lock: Box<dyn LockImpl>) {
 
         // Write to value
         {
-            let data_ptr = lock.lock().unwrap();
+            let data_ptr = lock.lock().deny_abandoned().unwrap();
             info!("[{}]\t WRITE LOCKED", id);
             let data = unsafe { &mut *(*data_ptr as *mut usize) };
             *data += 1;

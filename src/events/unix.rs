@@ -96,10 +96,10 @@ impl EventInit for Event {
 impl EventImpl for Event {
     fn wait(&self, timeout: Timeout) -> Result<()> {
         let (guard, timespec) = match timeout {
-            Timeout::Infinite => (self.mutex.lock()?, None),
+            Timeout::Infinite => (self.mutex.lock().deny_abandoned()?, None),
             Timeout::Val(d) => {
                 let timespec = abs_timespec_from_duration(d);
-                (self.mutex.try_lock(timeout)?, Some(timespec))
+                (self.mutex.try_lock(timeout).deny_abandoned()?, Some(timespec))
             }
         };
 
@@ -138,7 +138,7 @@ impl EventImpl for Event {
     }
 
     fn set(&self, state: EventState) -> Result<()> {
-        let guard = self.mutex.lock()?;
+        let guard = self.mutex.lock().deny_abandoned()?;
         let inner = unsafe { &mut *self.inner };
         let res = match state {
             EventState::Clear => {

@@ -16,6 +16,8 @@ use winapi::{
 
 use super::{LockGuard, LockImpl, LockInit};
 use crate::{Result, Timeout};
+use crate::locks::LockResult;
+use crate::Timeout::Infinite;
 
 pub struct Mutex {
     handle: HANDLE,
@@ -90,22 +92,11 @@ impl LockImpl for Mutex {
         self.handle as _
     }
 
-    fn lock(&self) -> Result<LockGuard<'_>> {
-        let wait_res = unsafe { WaitForSingleObject(self.handle, INFINITE) };
-        //trace!("WaitForSingleObject(0x{:X})", self.handle as usize);
-        if wait_res == WAIT_OBJECT_0 {
-            Ok(LockGuard::new(self))
-        } else if wait_res == WAIT_ABANDONED {
-            panic!("A thread holding the mutex has left it in a poisened state");
-        } else {
-            Err(From::from(format!(
-                "Failed to aquire lock with value : 0x{:X}",
-                wait_res
-            )))
-        }
+    fn lock(&self) -> LockResult {
+        self.try_lock(Infinite)
     }
 
-    fn try_lock(&self, timeout: Timeout) -> Result<LockGuard<'_>> {
+    fn try_lock(&self, timeout: Timeout) -> LockResult {
         let wait_res = unsafe {
             WaitForSingleObject(
                 self.handle,
@@ -117,11 +108,11 @@ impl LockImpl for Mutex {
         };
         //trace!("WaitForSingleObject(0x{:X})", self.handle as usize);
         if wait_res == WAIT_OBJECT_0 {
-            Ok(LockGuard::new(self))
+            LockResult::Ok(LockGuard::new(self))
         } else if wait_res == WAIT_ABANDONED {
-            panic!("A thread holding the mutex has left it in a poisened state");
+            LockResult::Abandoned(LockGuard::new(self))
         } else {
-            Err(From::from(format!(
+            LockResult::Failed(From::from(format!(
                 "Failed to aquire lock with value : 0x{:X}",
                 wait_res
             )))

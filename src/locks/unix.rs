@@ -25,11 +25,14 @@ use libc::{
     pthread_rwlock_wrlock,
     pthread_rwlockattr_init,
     pthread_rwlockattr_setpshared,
+    pthread_mutexattr_setrobust,
     pthread_rwlockattr_t,
     timespec,
     CLOCK_REALTIME,
 
     PTHREAD_PROCESS_SHARED,
+    PTHREAD_MUTEX_ROBUST,
+    EOWNERDEAD,
 };
 //use log::*;
 
@@ -74,6 +77,8 @@ cfg_if::cfg_if! {
 
 use super::{LockGuard, LockImpl, LockInit, ReadLockGuard};
 use crate::{Result, Timeout};
+use crate::locks::{LockResult, ReadLockResult};
+use crate::Timeout::Infinite;
 
 /// Adds a duration to the current time
 pub(crate) fn abs_timespec_from_duration(d: Duration) -> timespec {
@@ -120,6 +125,13 @@ impl LockInit for Mutex {
                 "Failed to set pthread_mutexattr_setpshared(PTHREAD_PROCESS_SHARED)".to_string(),
             ));
         }
+
+        //trace!("pthread_mutexattr_setpshared");
+        if pthread_mutexattr_setrobust(&mut lock_attr, PTHREAD_MUTEX_ROBUST) != 0 {
+            return Err(From::from(
+                "Failed to set pthread_mutexattr_setrobust(&mut lock_attr, PTHREAD_MUTEX_ROBUST)".to_string(),
+            ));
+        }
         let ptr = mem.add(padding) as *mut _;
         //trace!("pthread_mutex_init({:p})", ptr);
         if pthread_mutex_init(ptr, &lock_attr) != 0 {
@@ -160,17 +172,20 @@ impl LockImpl for Mutex {
         self.ptr as _
     }
 
-    fn lock(&self) -> Result<LockGuard<'_>> {
+    fn lock(&self) -> LockResult {
         let res = unsafe { pthread_mutex_lock(self.ptr) };
         //trace!("pthread_mutex_lock({:p})", self.ptr);
+        if res == EOWNERDEAD {
+            return LockResult::Abandoned(LockGuard::new(self));
+        }
         if res != 0 {
-            return Err(From::from(format!("Failed to acquire mutex : {}", res)));
+            return LockResult::Failed(From::from(format!("Failed to acquire mutex : {}", res)));
         }
 
-        Ok(LockGuard::new(self))
+        LockResult::Ok(LockGuard::new(self))
     }
 
-    fn try_lock(&self, timeout: Timeout) -> Result<LockGuard<'_>> {
+    fn try_lock(&self, timeout: Timeout) -> LockResult {
         let timespec: timespec = match timeout {
             Timeout::Infinite => return self.lock(),
             Timeout::Val(d) => abs_timespec_from_duration(d),
@@ -178,11 +193,14 @@ impl LockImpl for Mutex {
 
         let res = unsafe { pthread_mutex_timedlock(self.ptr, &timespec) };
         //trace!("pthread_mutex_timedlock({:p})", self.ptr);
+        if res == EOWNERDEAD {
+            return LockResult::Abandoned(LockGuard::new(self));
+        }
         if res != 0 {
-            return Err(From::from(format!("Failed to acquire mutex : {}", res)));
+            return LockResult::Failed(From::from(format!("Failed to acquire mutex : {}", res)));
         }
 
-        Ok(LockGuard::new(self))
+        LockResult::Ok(LockGuard::new(self))
     }
 
     fn release(&self) -> Result<()> {
@@ -267,20 +285,20 @@ impl LockImpl for RwLock {
         self.ptr as _
     }
 
-    fn lock(&self) -> Result<LockGuard<'_>> {
+    fn lock(&self) -> LockResult {
         let res = unsafe { pthread_rwlock_wrlock(self.ptr) };
         //trace!("pthread_rwlock_wrlock({:p})", self.ptr);
         if res != 0 {
-            return Err(From::from(format!(
+            return LockResult::Failed(From::from(format!(
                 "Failed to acquire writeable rwlock : {}",
                 res
             )));
         }
 
-        Ok(LockGuard::new(self))
+        LockResult::Ok(LockGuard::new(self))
     }
 
-    fn try_lock(&self, timeout: Timeout) -> Result<LockGuard<'_>> {
+    fn try_lock(&self, timeout: Timeout) -> LockResult {
         let timespec: timespec = match timeout {
             Timeout::Infinite => return self.lock(),
             Timeout::Val(d) => abs_timespec_from_duration(d),
@@ -289,29 +307,29 @@ impl LockImpl for RwLock {
         let res = unsafe { pthread_rwlock_timedwrlock(self.ptr, &timespec) };
         //trace!("pthread_rwlock_timedwrlock({:p})", self.ptr);
         if res != 0 {
-            return Err(From::from(format!(
+            return LockResult::Failed(From::from(format!(
                 "Failed to acquire writeable rwlock : {}",
                 res
             )));
         }
 
-        Ok(LockGuard::new(self))
+        LockResult::Ok(LockGuard::new(self))
     }
 
-    fn rlock(&self) -> Result<ReadLockGuard<'_>> {
+    fn rlock(&self) -> ReadLockResult {
         let res = unsafe { pthread_rwlock_rdlock(self.ptr) };
         //trace!("pthread_rwlock_rdlock({:p})", self.ptr);
         if res != 0 {
-            return Err(From::from(format!(
+            return ReadLockResult::Failed(From::from(format!(
                 "Failed to acquire readable rwlock : {}",
                 res
             )));
         }
 
-        Ok(ReadLockGuard::new(self))
+        ReadLockResult::Ok(ReadLockGuard::new(self))
     }
 
-    fn try_rlock(&self, timeout: Timeout) -> Result<ReadLockGuard<'_>> {
+    fn try_rlock(&self, timeout: Timeout) -> ReadLockResult {
         let timespec: timespec = match timeout {
             Timeout::Infinite => return self.rlock(),
             Timeout::Val(d) => abs_timespec_from_duration(d),
@@ -320,13 +338,13 @@ impl LockImpl for RwLock {
         let res = unsafe { pthread_rwlock_timedrdlock(self.ptr, &timespec) };
         //trace!("pthread_rwlock_timedrdlock({:p})", self.ptr);
         if res != 0 {
-            return Err(From::from(format!(
+            return ReadLockResult::Failed(From::from(format!(
                 "Failed to acquire readable rwlock : {}",
                 res
             )));
         }
 
-        Ok(ReadLockGuard::new(self))
+        ReadLockResult::Ok(ReadLockGuard::new(self))
     }
 
     fn release(&self) -> Result<()> {
