@@ -12,6 +12,7 @@ cfg_if::cfg_if! {
 use crate::{Result, Timeout};
 pub use os::*;
 
+#[derive(Copy, Clone, Debug)]
 pub enum EventState {
     /// Clear's the event state so the next wait() call will block
     Clear,

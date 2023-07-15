@@ -4,6 +4,7 @@ pub mod events;
 /// Lock implementations
 pub mod locks;
 
+#[derive(Copy, Clone, Debug)]
 pub enum Timeout {
     Infinite,
     Val(std::time::Duration),
