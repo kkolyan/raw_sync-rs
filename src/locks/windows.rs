@@ -13,6 +13,9 @@ use winapi::{
         winnt::{HANDLE, SYNCHRONIZE},
     },
 };
+use winapi::shared::winerror::WAIT_TIMEOUT;
+use winapi::um::errhandlingapi::GetLastError;
+use winapi::um::winbase::WAIT_FAILED;
 
 use super::{LockGuard, LockImpl, LockInit};
 use crate::{Result, Timeout};
@@ -92,11 +95,11 @@ impl LockImpl for Mutex {
         self.handle as _
     }
 
-    fn lock(&self) -> LockResult {
+    fn lock(&self) -> LockResult<LockGuard> {
         self.try_lock(Infinite)
     }
 
-    fn try_lock(&self, timeout: Timeout) -> LockResult {
+    fn try_lock(&self, timeout: Timeout) -> LockResult<LockGuard> {
         let wait_res = unsafe {
             WaitForSingleObject(
                 self.handle,
@@ -111,9 +114,17 @@ impl LockImpl for Mutex {
             LockResult::Ok(LockGuard::new(self))
         } else if wait_res == WAIT_ABANDONED {
             LockResult::Abandoned(LockGuard::new(self))
+        } else if wait_res == WAIT_TIMEOUT {
+            LockResult::Timeout
+        } else if wait_res == WAIT_FAILED {
+            let error = unsafe { GetLastError() };
+            LockResult::Failed(From::from(format!(
+                "WaitForSingleObject error: 0x{:X}",
+                error
+            )))
         } else {
             LockResult::Failed(From::from(format!(
-                "Failed to aquire lock with value : 0x{:X}",
+                "WaitForSingleObject unknown return code: 0x{:X}",
                 wait_res
             )))
         }

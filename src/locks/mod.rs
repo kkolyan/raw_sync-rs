@@ -15,34 +15,31 @@ cfg_if::cfg_if! {
 use crate::{Result, Timeout};
 pub use os::*;
 
-pub enum LockResult<'a> {
-    Ok(LockGuard<'a>),
-    Abandoned(LockGuard<'a>),
+pub enum LockResult<T> {
+    Ok(T),
+    Abandoned(T),
+    Timeout,
     Failed(Box<dyn Error>),
 }
 
-pub enum ReadLockResult<'a> {
-    Ok(ReadLockGuard<'a>),
-    Abandoned(ReadLockGuard<'a>),
-    Failed(Box<dyn Error>),
-}
-
-impl <'a> LockResult<'a> {
-    pub fn deny_abandoned(self) -> Result<LockGuard<'a>> {
+impl <S> LockResult<S> {
+    pub fn map<T, F: FnOnce(S) -> T>(self, f: F) -> LockResult<T> {
         match self {
-            LockResult::Ok(guard) => Ok(guard),
-            LockResult::Abandoned(_) => Err(From::from("A thread holding the mutex has left it in a poisened state")),
-            LockResult::Failed(err) => Err(err),
+            LockResult::Ok(it) => LockResult::Ok(f(it)),
+            LockResult::Abandoned(it) => LockResult::Abandoned(f(it)),
+            LockResult::Timeout => LockResult::Timeout,
+            LockResult::Failed(err) => LockResult::Failed(err),
         }
     }
 }
 
-impl <'a> ReadLockResult<'a> {
-    pub fn deny_abandoned(self) -> Result<ReadLockGuard<'a>> {
+impl <T> LockResult<T> {
+    pub fn ok(self) -> Result<T> {
         match self {
-            ReadLockResult::Ok(guard) => Ok(guard),
-            ReadLockResult::Abandoned(_) => Err(From::from("A thread holding the mutex has left it in a poisened state")),
-            ReadLockResult::Failed(err) => Err(err),
+            LockResult::Ok(t) => Ok(t),
+            LockResult::Abandoned(_) => Err(From::from("A thread holding the mutex has left it in a poisened state")),
+            LockResult::Failed(err) => Err(err),
+            LockResult::Timeout => Err(From::from("mutext waiting timeout")),
         }
     }
 }
@@ -67,30 +64,22 @@ pub trait LockInit {
 pub trait LockImpl {
     fn as_raw(&self) -> *mut std::ffi::c_void;
     /// Acquires the lock
-    fn lock(&self) -> LockResult;
+    fn lock(&self) -> LockResult<LockGuard>;
 
     /// Acquires lock with timeout
-    fn try_lock(&self, timeout: Timeout) -> LockResult;
+    fn try_lock(&self, timeout: Timeout) -> LockResult<LockGuard>;
 
     /// Release the lock
     fn release(&self) -> Result<()>;
 
     /// Acquires the lock for read access only. This method uses `lock()` as a fallback
-    fn rlock(&self) -> ReadLockResult {
-        match self.lock() {
-            LockResult::Ok(guard) => ReadLockResult::Ok(guard.into_read_guard()),
-            LockResult::Abandoned(guard) => ReadLockResult::Abandoned(guard.into_read_guard()),
-            LockResult::Failed(err) => ReadLockResult::Failed(err),
-        }
+    fn rlock(&self) -> LockResult<ReadLockGuard> {
+        self.lock().map(|it| it.into_read_guard())
     }
 
     /// Acquires the lock for read access only with timeout. This method uses `lock()` as a fallback
-    fn try_rlock(&self, timeout: Timeout) -> ReadLockResult {
-        match self.try_lock(timeout) {
-            LockResult::Ok(guard) => ReadLockResult::Ok(guard.into_read_guard()),
-            LockResult::Abandoned(guard) => ReadLockResult::Abandoned(guard.into_read_guard()),
-            LockResult::Failed(err) => ReadLockResult::Failed(err),
-        }
+    fn try_rlock(&self, timeout: Timeout) -> LockResult<ReadLockGuard> {
+        self.try_lock(timeout).map(|it| it.into_read_guard())
     }
 
     /// Leaks the inner data without acquiring the lock
