@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, DerefMut};
 
 cfg_if::cfg_if! {
@@ -15,6 +16,7 @@ cfg_if::cfg_if! {
 use crate::{Result, Timeout};
 pub use os::*;
 
+#[derive(Debug)]
 pub enum LockResult<T> {
     Ok(T),
     Abandoned(T),
@@ -91,6 +93,11 @@ pub trait LockImpl {
 /// Used to wrap an acquired lock's data. Lock is automatically released on `Drop`
 pub struct LockGuard<'t> {
     lock: &'t dyn LockImpl,
+}
+impl Debug for LockGuard<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "LockGuard()")
+    }
 }
 impl<'t> Drop for LockGuard<'t> {
     fn drop(&mut self) {
