@@ -1,6 +1,7 @@
 use std::ffi::CString;
 use std::mem::size_of;
 use std::ptr::null_mut;
+use log::trace;
 
 use winapi::{
     shared::ntdef::{FALSE, NULL, TRUE},
@@ -20,7 +21,7 @@ pub struct Event {
 }
 impl Drop for Event {
     fn drop(&mut self) {
-        //trace!("CloseHandle(0x{:X})", self.handle as usize);
+        trace!("CloseHandle(0x{:X})", self.handle as usize);
         unsafe { CloseHandle(self.handle) };
     }
 }
@@ -36,7 +37,7 @@ impl EventInit for Event {
         while handle == NULL {
             id = rand::random::<u32>();
             let path = CString::new(format!("event_{}", id)).unwrap();
-            //trace!("CreateEventA(NULL, '{:?}', '{}')",!auto_reset,path.to_string_lossy());
+            trace!("CreateEventA(NULL, '{:?}', '{}')",!auto_reset,path.to_string_lossy());
             handle = CreateEventA(
                 null_mut(),
                 if auto_reset { FALSE } else { TRUE } as _,
@@ -53,7 +54,7 @@ impl EventInit for Event {
     unsafe fn from_existing(mem: *mut u8) -> Result<(Box<dyn EventImpl>, usize)> {
         let id: u32 = *(mem as *mut u32);
         let path = CString::new(format!("event_{}", id)).unwrap();
-        //trace!("OpenEventA('{}')", path.to_string_lossy());
+        trace!("OpenEventA('{}')", path.to_string_lossy());
         let handle = OpenEventA(
             EVENT_MODIFY_STATE | SYNCHRONIZE, // request full access
             FALSE as _,                       // handle not inheritable
@@ -72,7 +73,7 @@ impl EventInit for Event {
 }
 impl EventImpl for Event {
     fn wait(&self, timeout: Timeout) -> Result<()> {
-        //trace!("WaitForSingleObject(0x{:X})", self.handle as usize);
+        trace!("WaitForSingleObject(0x{:X})", self.handle as usize);
         let wait_res = unsafe {
             WaitForSingleObject(
                 self.handle,
@@ -96,11 +97,11 @@ impl EventImpl for Event {
     fn set(&self, state: EventState) -> Result<()> {
         let res = match state {
             EventState::Clear => {
-                //trace!("ResetEvent(0x{:X})", self.handle as usize);
+                trace!("ResetEvent(0x{:X})", self.handle as usize);
                 unsafe { ResetEvent(self.handle) }
             }
             EventState::Signaled => {
-                //trace!("SetEvent(0x{:X})", self.handle as usize);
+                trace!("SetEvent(0x{:X})", self.handle as usize);
                 unsafe { SetEvent(self.handle) }
             }
         };

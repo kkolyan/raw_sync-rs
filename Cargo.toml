@@ -14,9 +14,9 @@ categories = ["os::unix-apis","os::windows-apis","concurrency"]
 
 [dependencies]
 cfg-if = "1.0"
+log = "0.4"
 
 [dev-dependencies]
-log = "0.4"
 env_logger = "0.9"
 
 [target.'cfg(windows)'.dependencies]
